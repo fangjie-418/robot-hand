@@ -41,17 +41,7 @@
 - 仿真频率 100Hz（RK4 积分），渲染 60fps。
 - 质量 / 阻尼 / 刚度倍率可调，力矩上限可调。
 
-## 快速开始
 
-```bash
-# 方式一：直接双击打开
-index.html
-
-# 方式二：本地静态服务器（推荐，避免个别浏览器对 file:// 的限制）
-python -m http.server 8000     # 然后访问 http://localhost:8000
-# 或
-npx serve .
-```
 
 ## 技术栈
 
@@ -89,35 +79,6 @@ dω/dt  = (τ_net − B·ω − K·θ) / J
 τ_net  = u + τ_ff − τ_gravity + τ_dist
 ```
 
-## 发布到 GitHub（GitHub Pages）
-
-> 若本机已安装 git 与 GitHub CLI，可执行以下命令：
-
-```bash
-cd robot-hand
-git init
-git add index.html README.md
-git commit -m "feat: 灵巧手 PID 控制仿真 (Three.js + Chart.js)"
-
-# 创建远程仓库（仓库名：robot-hand）
-gh repo create robot-hand --public --source=. --push
-
-# 开启 GitHub Pages
-gh api -X POST repos/{owner}/robot-hand/pages \
-  -f "source[branch]=main" -f "source[path]=/"
-```
-
-发布后访问：`https://<你的用户名>.github.io/robot-hand/`
-
-> 未安装 `gh` 时，可在 GitHub 网页端手动创建空仓库 `robot-hand`，然后：
->
-> ```bash
-> git remote add origin https://github.com/<你的用户名>/robot-hand.git
-> git branch -M main
-> git push -u origin main
-> ```
->
-> 再到仓库 **Settings → Pages** 将 Source 设为 `main` 分支根目录即可。
 
 ## 许可证
 
