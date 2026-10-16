@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>机器人清洁系统仿真</title>
+<style>
+  :root {
+    --bg: #0f1220;
+    --panel: #171b2b;
+    --panel-2: #1f2440;
+    --border: #2c3252;
+    --text: #d7dcec;
+    --muted: #8a91b0;
+    --accent: #4da3ff;
+    --accent-2: #4ade80;
+    --danger: #ff5d5d;
+    --warn: #ffb020;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: radial-gradient(circle at 30% 20%, #171d33, #0a0c16);
+    color: var(--text);
+    font-family: "Consolas", "Courier New", monospace;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .app {
+    display: flex;
+    gap: 20px;
+    align-items: stretch;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  /* 左侧画布 */
+  .stage {
+    position: relative;
+    border: 3px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 0 0 2px #0a0c16, 0 12px 40px rgba(0,0,0,.55);
+    background: #000;
+    overflow: hidden;
+    image-rendering: pixelated;
+  }
+  .stage canvas { display: block; image-rendering: pixelated; }
+  .scanlines {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px);
+    mix-blend-mode: overlay;
+  }
+  .complete-overlay {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .complete-overlay .card {
+    background: rgba(10, 12, 22, .82);
+    border: 2px solid var(--accent-2);
+    color: var(--accent-2);
+    padding: 18px 30px;
+    font-size: 26px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    border-radius: 6px;
+    text-shadow: 0 0 10px rgba(74,222,128,.7);
+    animation: pop .5s ease;
+  }
+  @keyframes pop { from { transform: scale(.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+  /* 右侧面板 */
+  .panel {
+    width: 340px;
+    background: var(--panel);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .panel h1 {
+    margin: 0;
+    font-size: 17px;
+    letter-spacing: 1px;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel h1::before {
+    content: "";
+    width: 12px; height: 12px;
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+    border-radius: 2px;
+  }
+  .section {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+  }
+  .section .label {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+  }
+  .btn-row { display: flex; gap: 8px; }
+  button {
+    flex: 1;
+    padding: 10px 0;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    color: #fff;
+    background: #232a4d;
+    border: 1px solid #384070;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: transform .08s, background .15s;
+  }
+  button:hover { background: #2d3766; }
+  button:active { transform: translateY(1px); }
+  button.primary { background: var(--accent); border-color: #79c0ff; color: #04122a; }
+  button.primary:hover { background: #79c0ff; }
+  button.warn { background: #4a3350; border-color: #7a4a6a; }
+
+  .radio-row { display: flex; gap: 8px; }
+  .radio-row label {
+    flex: 1;
+    text-align: center;
+    padding: 8px 0;
+    background: #232a4d;
+    border: 1px solid #384070;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .radio-row input { display: none; }
+  .radio-row input:checked + span { color: var(--accent-2); }
+  .radio-row label:has(input:checked) { border-color: var(--accent-2); background: #1c2a2a; }
+
+  select {
+    width: 100%;
+    padding: 9px;
+    font-family: inherit;
+    font-size: 13px;
+    background: #232a4d;
+    color: var(--text);
+    border: 1px solid #384070;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+
+  .stat { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; }
+  .stat b { color: #fff; font-weight: normal; }
+  .stat .unit { color: var(--muted); }
+  .stat .val { color: var(--accent); font-size: 14px; }
+  .stat .val.green { color: var(--accent-2); }
+  .stat .val.yellow { color: var(--warn); }
+  .stat .val.red { color: var(--danger); }
+
+  .progress {
+    margin-top: 10px;
+    height: 14px;
+    background: #0d1020;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #4da3ff, #4ade80);
+    transition: width .3s;
+  }
+
+  .robot-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; }
+  .robot-bar .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .robot-bar .bar { flex: 1; height: 8px; background: #0d1020; border-radius: 4px; overflow: hidden; }
+  .robot-bar .fill { height: 100%; width: 100%; }
+  .robot-bar .pct { width: 34px; text-align: right; color: var(--muted); }
+
+  .hint { font-size: 11px; color: var(--muted); line-height: 1.6; }
+  .hint .red { color: var(--danger); }
+  .hint .yellow { color: var(--warn); }
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="stage">
+      <canvas id="sim" width="800" height="600"></canvas>
+      <div class="scanlines"></div>
+      <div class="complete-overlay" id="completeOverlay"><div class="card">清洁完成 ✔</div></div>
+    </div>
+
+    <div class="panel">
+      <h1>机器人清洁系统仿真</h1>
+
+      <div class="section">
+        <div class="label">控制</div>
+        <div class="btn-row">
+          <button id="btnStart" class="primary">开始</button>
+          <button id="btnPause">暂停</button>
+          <button id="btnReset" class="warn">重置</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="label">机器人数量</div>
+        <div class="radio-row" id="countSelector">
+          <label><input type="radio" name="count" value="1"><span>1 台</span></label>
+          <label><input type="radio" name="count" value="2" checked><span>2 台</span></label>
+          <label><input type="radio" name="count" value="3"><span>3 台</span></label>
+          <label><input type="radio" name="count" value="4"><span>4 台</span></label>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="label">清洁模式</div>
+        <select id="modeSelect">
+          <option value="zigzag">锯齿形路径</option>
+          <option value="spiral">螺旋路径</option>
+          <option value="random">随机路径</option>
+        </select>
+      </div>
+
+      <div class="section">
+        <div class="label">实时数据</div>
+        <div class="stat"><span>总清洁面积</span><span><b id="statArea">0</b> <span class="unit">m²</span></span></div>
+        <div class="stat"><span>清洁覆盖率</span><span><b id="statCoverage" class="val">0</b> <span class="unit">%</span></span></div>
+        <div class="stat"><span>剩余电量</span><span><b id="statBattery" class="val green">100</b> <span class="unit">%</span></span></div>
+        <div class="stat"><span>运行时间</span><span><b id="statTime" class="val">00:00</b></span></div>
+        <div class="progress"><div class="progress-fill" id="progressFill"></div></div>
+      </div>
+
+      <div class="section" id="robotBatteries"></div>
+
+      <div class="hint">
+        <span class="red">● 红色虚线</span>：避障路径<br>
+        <span class="yellow">● 闪烁</span>：低电量，自动返回充电桩<br>
+        机器人沿锯齿形路径清扫并留下半透明已清洁轨迹
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script>
+  "use strict";
+  const canvas = document.getElementById('sim');
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  const W = 800, H = 600;
+  const WALL = 16;            // 墙壁厚度
+  const CELL = 20;            // 网格尺寸(20px = 1m)
+  const ROBOT_R = 10;         // 机器人半径
+  const hasGSAP = typeof window.gsap !== 'undefined';
+
+  const rightX = W - WALL - ROBOT_R - 2;
+  const leftX  = WALL + ROBOT_R + 2;
+
+  const BATTERY_DRAIN = 3.0;   // %/秒
+  const LOW_BATTERY   = 20;    // 低电量阈值 %
+  const CHARGE_RATE   = 14;    // %/秒
+  const ARRIVE        = 4;     // 到达判定阈值 px
+  const COMPLETE_THRESHOLD = 98;
+
+  // ---------- 家具 / 障碍物 ----------
+  const furniture = [
+    { x: 120, y: 120, w: 160, h: 90,  c: '#8a5a3b', label: '沙发' },
+    { x: 500, y: 110, w: 130, h: 150, c: '#5b4a8a', label: '衣柜' },
+    { x: 180, y: 400, w: 150, h: 100, c: '#4a6a8a', label: '床'   },
+    { x: 560, y: 380, w: 150, h: 120, c: '#6a5a3a', label: '书桌' },
+    { x: 360, y: 300, w: 90,  h: 90,  c: '#7a4a4a', label: '茶几' },
+  ];
+
+  const dock = { x: WALL + 10, y: H - WALL - 46, w: 84, h: 30 };
+
+  // ---------- 网格 ----------
+  const GW = Math.floor(W / CELL);   // 40
+  const GH = Math.floor(H / CELL);   // 30
+  const occupied = new Uint8Array(GW * GH);
+  const cleaned  = new Uint8Array(GW * GH);
+  let floorCells = 0;
+  let cleanedCount = 0;
+
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function circleRect(cx, cy, r, rect) {
+    const nx = clamp(cx, rect.x, rect.x + rect.w);
+    const ny = clamp(cy, rect.y, rect.y + rect.h);
+    const dx = cx - nx, dy = cy - ny;
+    return dx * dx + dy * dy <= r * r;
+  }
+  function collidesStatic(x, y, r) {
+    if (x - r < WALL || x + r > W - WALL || y - r < WALL || y + r > H - WALL) return true;
+    for (const f of furniture) if (circleRect(x, y, r, f)) return true;
+    return false;
+  }
+  function inBounds(x, y, r) {
+    return x - r >= WALL && x + r <= W - WALL && y - r >= WALL && y + r <= H - WALL;
+  }
+  function cellCenter(cx, cy) { return { x: cx * CELL + CELL / 2, y: cy * CELL + CELL / 2 }; }
+  function posToCell(x, y) {
+    return clamp(Math.floor(x / CELL), 0, GW - 1) + clamp(Math.floor(y / CELL), 0, GH - 1) * GW;
+  }
+  function idxToCell(idx) { return { x: (idx % GW) * CELL + CELL / 2, y: Math.floor(idx / GW) * CELL + CELL / 2 }; }
+
+  function initGrid() {
+    occupied.fill(0); cleaned.fill(0); floorCells = 0; cleanedCount = 0;
+    for (let cy = 0; cy < GH; cy++) {
+      for (let cx = 0; cx < GW; cx++) {
+        const p = cellCenter(cx, cy);
+        const occ = collidesStatic(p.x, p.y, 0);
+        occupied[cy * GW + cx] = occ ? 1 : 0;
+        if (!occ) floorCells++;
+      }
+    }
+  }
+
+  // 直线可达性（Bresenham 采样 + 碰撞检测）
+  function hasDirectPath(x1, y1, x2, y2, r) {
+    if (collidesStatic(x2, y2, r)) return false;
+    const d = Math.hypot(x2 - x1, y2 - y1);
+    const steps = Math.max(1, Math.ceil(d / (r * 0.5)));
+    for (let i = 1; i < steps; i++) {
+      const t = i / steps;
+      if (collidesStatic(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, r)) return false;
+    }
+    return true;
+  }
+
+  function isWalkableCell(cx, cy) {
+    if (cx < 0 || cy < 0 || cx >= GW || cy >= GH) return false;
+    return occupied[cy * GW + cx] === 0;
+  }
+
+  // BFS 网格寻路（兜底）
+  function bfsPath(from, to) {
+    const start = posToCell(from.x, from.y);
+    const end = posToCell(to.x, to.y);
+    if (start === end) return [{ x: to.x, y: to.y }];
+    const prev = new Int32Array(GW * GH).fill(-1);
+    const vis = new Uint8Array(GW * GH);
+    const q = [start]; vis[start] = 1;
+    const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+    while (q.length) {
+      const cur = q.shift();
+      if (cur === end) break;
+      const cx = cur % GW, cy = Math.floor(cur / GW);
+      for (const [dx, dy] of dirs) {
+        const nx = cx + dx, ny = cy + dy;
+        if (!isWalkableCell(nx, ny)) continue;
+        const ni = ny * GW + nx;
+        if (vis[ni]) continue;
+        vis[ni] = 1; prev[ni] = cur; q.push(ni);
+      }
+    }
+    if (prev[end] === -1 && start !== end) return null;
+    const path = [];
+    let cur = end;
+    while (cur !== -1) {
+      path.push(idxToCell(cur));
+      if (cur === start) break;
+      cur = prev[cur];
+    }
+    path.reverse();
+    return path;
+  }
+
+  // 改进的右侧绕行算法（右手法则）
+  function rightHandWallFollow(robot, target, r) {
+    const headings = [[1, 0], [0, 1], [-1, 0], [0, -1]]; // 右、下、左、上
+    let h = 0;
+    let cx = Math.floor(robot.x / CELL), cy = Math.floor(robot.y / CELL);
+    const path = [];
+    const visited = new Set();
+    const maxSteps = GW * GH * 4;
+    for (let i = 0; i < maxSteps; i++) {
+      const key = (cy * GW + cx) * 4 + h;
+      if (visited.has(key)) return null; // 成环，交给 BFS 兜底
+      visited.add(key);
+      const p = cellCenter(cx, cy);
+      path.push(p);
+      if (hasDirectPath(p.x, p.y, target.x, target.y, r)) {
+        path.push({ x: target.x, y: target.y });
+        return path;
+      }
+      const order = [(h + 1) % 4, h, (h + 3) % 4, (h + 2) % 4]; // 右、前、左、后
+      let moved = false;
+      for (const nd of order) {
+        const nx = cx + headings[nd][0], ny = cy + headings[nd][1];
+        if (isWalkableCell(nx, ny)) { cx = nx; cy = ny; h = nd; moved = true; break; }
+      }
+      if (!moved) return null;
+    }
+    return null;
+  }
+
+  // 避障路径生成算法
+  function generateAvoidancePath(robot, target) {
+    const r = robot.r, step = CELL;
+    const dirs = [[0, -step], [step, 0], [0, step], [-step, 0]]; // 上、右、下、左
+    // 1) 四方向探测：寻找安全方向，并检查到目标的直接路径
+    for (const [dx, dy] of dirs) {
+      const nx = robot.x + dx, ny = robot.y + dy;
+      if (!inBounds(nx, ny, r)) continue;                 // 边界检查
+      if (collidesStatic(nx, ny, r)) continue;            // 碰撞检测
+      if (hasDirectPath(nx, ny, target.x, target.y, r)) { // 直接路径检查
+        return [{ x: nx, y: ny }, { x: target.x, y: target.y }];
+      }
+    }
+    // 2) 四方向均失败 -> 改进的右侧绕行算法
+    const wall = rightHandWallFollow(robot, target, r);
+    if (wall) return wall;
+    // 3) 兜底 BFS
+    return bfsPath(robot, target) || [{ x: target.x, y: target.y }];
+  }
+
+  // ---------- 清洁模式锚点 ----------
+  let sweepRows = [];
+  let spiralAnchors = [];
+  function buildSweepRows() {
+    sweepRows = [];
+    for (let cy = 1; cy < GH - 1; cy++) {
+      const y = cy * CELL + CELL / 2;
+      if (y - ROBOT_R >= WALL && y + ROBOT_R <= H - WALL) sweepRows.push(y);
+    }
+  }
+  function buildSpiral() {
+    spiralAnchors = [];
+    const dirs = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+    let x = Math.floor(GW / 2), y = Math.floor(GH / 2);
+    spiralAnchors.push(cellCenter(x, y));
+    let steps = 1, dir = 0, guard = 0;
+    while (guard++ < 400) {
+      for (let s = 0; s < 2; s++) {
+        for (let i = 0; i < steps; i++) {
+          x += dirs[dir][0]; y += dirs[dir][1];
+          if (x < 1 || y < 1 || x >= GW - 1 || y >= GH - 1) return;
+          if (isWalkableCell(x, y)) spiralAnchors.push(cellCenter(x, y));
+        }
+        dir = (dir + 1) % 4;
+      }
+      steps++;
+    }
+  }
+  function randomAnchor() {
+    for (let t = 0; t < 200; t++) {
+      const cx = 1 + Math.floor(Math.random() * (GW - 2));
+      const cy = 1 + Math.floor(Math.random() * (GH - 2));
+      if (isWalkableCell(cx, cy)) return cellCenter(cx, cy);
+    }
+    return null;
+  }
+
+  // ---------- 机器人 ----------
+  const COLORS = ['#ff5d5d', '#4da3ff', '#4ade80', '#ffb020'];
+  let robots = [];
+  let robotCount = 2;
+  let mode = 'zigzag';
+
+  function createRobot(i) {
+    const r = {
+      idx: i, r: ROBOT_R, color: COLORS[i % COLORS.length],
+      x: 0, y: 0, battery: 100, speed: 78,
+      state: 'idle',          // idle | cleaning | avoiding | returning | charging | done
+      target: null, path: [], avoidPath: [], avoiding: false,
+      rowIndex: i, spiralIndex: i,
+      bobPhase: Math.random() * 6.28,
+      blinkPhase: Math.random() * 6.28,
+      blink: false, angle: 0, done: false,
+    };
+    const dp = dockPoint(i);
+    r.x = dp.x; r.y = dp.y;
+    if (hasGSAP) {
+      gsap.to(r, { bobPhase: r.bobPhase + Math.PI * 2, duration: 2, repeat: -1, ease: 'none' });
+    }
+    return r;
+  }
+  function dockPoint(i) {
+    const n = Math.max(1, robots.length || robotCount);
+    const offset = (i - (n - 1) / 2) * (ROBOT_R * 2.2);
+    return { x: dock.x + dock.w / 2 + offset, y: dock.y + dock.h / 2 };
+  }
+
+  // ---------- 状态机 ----------
+  function pickNextTarget(robot) {
+    if (mode === 'zigzag') {
+      const y = sweepRows[robot.rowIndex];
+      robot.target = (y === undefined) ? null : { x: (robot.rowIndex % 2 === 0 ? rightX : leftX), y };
+      robot.rowIndex += robotCount;
+    } else if (mode === 'spiral') {
+      robot.target = spiralAnchors[robot.spiralIndex] || null;
+      robot.spiralIndex += robotCount;
+    } else {
+      robot.target = randomAnchor();
+    }
+  }
+
+  function ensurePath(robot) {
+    if (robot.path.length > 0) return;
+    if (robot.state === 'charging' || robot.state === 'done' || robot.state === 'idle') return;
+
+    if (robot.state === 'returning') {
+      const d = dockPoint(robot.idx);
+      if (dist(robot, d) < ARRIVE) {
+        robot.state = 'charging'; robot.blink = false;
+        robot.path = []; robot.avoidPath = []; robot.avoiding = false;
+        robot.x = d.x; robot.y = d.y;
+        return;
+      }
+      robot.path = bfsPath(robot, d) || [d];
+      return;
+    }
+
+    // cleaning / avoiding
+    if (!robot.target) pickNextTarget(robot);
+    if (!robot.target) {
+      // 主路径结束 -> 补充清扫未覆盖区域
+      const m = nearestUncleaned();
+      if (m) { robot.target = m; }
+      else { robot.state = 'done'; robot.done = true; return; }
+    }
+    if (dist(robot, robot.target) < ARRIVE) {
+      pickNextTarget(robot);
+      if (!robot.target) { const m = nearestUncleaned(); if (m) robot.target = m; else { robot.state = 'done'; robot.done = true; return; } }
+    }
+
+    if (hasDirectPath(robot.x, robot.y, robot.target.x, robot.target.y, robot.r)) {
+      robot.avoiding = false; robot.avoidPath = [];
+      robot.path = [{ x: robot.target.x, y: robot.target.y }];
+    } else {
+      const p = generateAvoidancePath(robot, robot.target);
+      robot.avoiding = true; robot.avoidPath = p.slice(); robot.path = p.slice();
+    }
+  }
+
+  function nearestUncleaned() {
+    let best = null, bestD = Infinity;
+    for (let i = 0; i < GW * GH; i++) {
+      if (occupied[i] || cleaned[i]) continue;
+      const p = idxToCell(i);
+      let d = Infinity;
+      for (const rb of robots) d = Math.min(d, Math.hypot(p.x - rb.x, p.y - rb.y));
+      if (d < bestD) { bestD = d; best = p; }
+    }
+    return best;
+  }
+
+  function moveRobotTo(robot, wp) {
+    const d = Math.hypot(wp.x - robot.x, wp.y - robot.y);
+    robot.angle = Math.atan2(wp.y - robot.y, wp.x - robot.x);
+    const dur = Math.max(0.2, d / robot.speed);
+    if (hasGSAP) {
+      gsap.to(robot, { x: wp.x, y: wp.y, duration: dur, ease: 'power1.inOut', overwrite: true });
+    } else {
+      robot._mv = { fx: robot.x, fy: robot.y, tx: wp.x, ty: wp.y, t: 0, dur };
+    }
+  }
+  function easeInOutQuad(t) { return t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
+  function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+  // ---------- 清洁标记 ----------
+  function markCleaned(robot) {
+    const R = ROBOT_R + 2;
+    const minCx = clamp(Math.floor((robot.x - R) / CELL), 0, GW - 1);
+    const maxCx = clamp(Math.floor((robot.x + R) / CELL), 0, GW - 1);
+    const minCy = clamp(Math.floor((robot.y - R) / CELL), 0, GH - 1);
+    const maxCy = clamp(Math.floor((robot.y + R) / CELL), 0, GH - 1);
+    for (let cy = minCy; cy <= maxCy; cy++) {
+      for (let cx = minCx; cx <= maxCx; cx++) {
+        const idx = cy * GW + cx;
+        if (occupied[idx] || cleaned[idx]) continue;
+        const cc = cellCenter(cx, cy);
+        const dx = cc.x - robot.x, dy = cc.y - robot.y;
+        if (dx * dx + dy * dy <= R * R) { cleaned[idx] = 1; cleanedCount++; }
+      }
+    }
+  }
+
+  // ---------- 更新 ----------
+  function update(dt) {
+    runtime += dt;
+    for (const robot of robots) {
+      if (robot.state === 'done' || robot.state === 'idle') continue;
+      if (robot.blink) robot.blinkPhase += dt * 12;
+
+      // 电量消耗
+      if (robot.state === 'cleaning' || robot.state === 'avoiding' || robot.state === 'returning') {
+        robot.battery = Math.max(0, robot.battery - BATTERY_DRAIN * dt);
+      }
+      // 低电量 -> 返回充电
+      if (robot.battery <= LOW_BATTERY && (robot.state === 'cleaning' || robot.state === 'avoiding')) {
+        robot.state = 'returning'; robot.blink = true;
+        robot.path = []; robot.avoidPath = []; robot.avoiding = false;
+        if (hasGSAP) gsap.killTweensOf(robot, "x,y");
+        continue;
+      }
+
+      // 到达检测
+      if (robot.path.length > 0) {
+        if (dist(robot, robot.path[0]) < ARRIVE) {
+          robot.path.shift();
+          if (robot.avoidPath.length > 0) robot.avoidPath.shift();
+        }
+      }
+
+      ensurePath(robot);
+      if (robot.state === 'charging') continue;
+
+      // 触发移动
+      if (robot.path.length > 0) {
+        const wp = robot.path[0];
+        if (hasGSAP) {
+          if (!robot._target || robot._target !== wp) { robot._target = wp; moveRobotTo(robot, wp); }
+        } else {
+          if (!robot._mv || robot._mv.tx !== wp.x || robot._mv.ty !== wp.y) moveRobotTo(robot, wp);
+        }
+      }
+
+      // 手动移动兜底
+      if (!hasGSAP && robot._mv) {
+        robot._mv.t += dt;
+        const e = easeInOutQuad(Math.min(1, robot._mv.t / robot._mv.dur));
+        robot.x = robot._mv.fx + (robot._mv.tx - robot._mv.fx) * e;
+        robot.y = robot._mv.fy + (robot._mv.ty - robot._mv.fy) * e;
+      }
+
+      markCleaned(robot);
+    }
+
+    // 充电
+    for (const robot of robots) {
+      if (robot.state === 'charging') {
+        robot.battery = Math.min(100, robot.battery + CHARGE_RATE * dt);
+        if (robot.battery >= 100) {
+          robot.state = 'cleaning'; robot.blink = false;
+          robot.path = []; robot.target = null;
+          if (hasGSAP) gsap.killTweensOf(robot, "x,y");
+        }
+      }
+    }
+  }
+
+  // ---------- 渲染 ----------
+  function drawRoom() {
+    // 地板
+    ctx.fillStyle = '#1c2130';
+    ctx.fillRect(0, 0, W, H);
+    // 地板网格（复古像素）
+    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= W; x += CELL) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y <= H; y += CELL) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    // 墙壁
+    ctx.fillStyle = '#3a4160';
+    ctx.fillRect(0, 0, W, WALL);
+    ctx.fillRect(0, H - WALL, W, WALL);
+    ctx.fillRect(0, 0, WALL, H);
+    ctx.fillRect(W - WALL, 0, WALL, H);
+    // 墙壁砖纹
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    for (let x = 0; x < W; x += 32) { ctx.fillRect(x, 0, 16, WALL); ctx.fillRect(x, H - WALL, 16, WALL); }
+    for (let y = 0; y < H; y += 32) { ctx.fillRect(0, y, WALL, 16); ctx.fillRect(W - WALL, y, WALL, 16); }
+  }
+
+  function drawFurniture() {
+    for (const f of furniture) {
+      // 主体
+      ctx.fillStyle = f.c;
+      ctx.fillRect(f.x, f.y, f.w, f.h);
+      // 顶部高光 / 底部阴影（伪 3D）
+      ctx.fillStyle = 'rgba(255,255,255,0.16)';
+      ctx.fillRect(f.x, f.y, f.w, 6);
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.fillRect(f.x, f.y + f.h - 6, f.w, 6);
+      ctx.fillRect(f.x + f.w - 6, f.y, 6, f.h);
+      // 边框
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(f.x, f.y, f.w, f.h);
+      // 标签
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      ctx.font = '12px Consolas, monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(f.label, f.x + f.w / 2, f.y + f.h / 2);
+    }
+  }
+
+  function drawCleaned() {
+    ctx.fillStyle = 'rgba(120, 220, 150, 0.16)';
+    for (let cy = 0; cy < GH; cy++) {
+      for (let cx = 0; cx < GW; cx++) {
+        if (cleaned[cy * GW + cx]) {
+          ctx.fillRect(cx * CELL + 1, cy * CELL + 1, CELL - 2, CELL - 2);
+        }
+      }
+    }
+  }
+
+  function drawDock() {
+    ctx.fillStyle = '#23304a';
+    ctx.fillRect(dock.x, dock.y, dock.w, dock.h);
+    ctx.strokeStyle = '#4da3ff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(dock.x, dock.y, dock.w, dock.h);
+    // 闪电图标
+    ctx.fillStyle = '#ffd23f';
+    ctx.beginPath();
+    ctx.moveTo(dock.x + 12, dock.y + 4);
+    ctx.lineTo(dock.x + 6, dock.y + dock.h / 2);
+    ctx.lineTo(dock.x + 12, dock.y + dock.h / 2);
+    ctx.lineTo(dock.x + 10, dock.y + dock.h - 4);
+    ctx.lineTo(dock.x + 18, dock.y + dock.h / 2 - 2);
+    ctx.lineTo(dock.x + 12, dock.y + dock.h / 2 - 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#8fb4ff';
+    ctx.font = '10px Consolas, monospace';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText('充电桩', dock.x + 24, dock.y + dock.h / 2);
+  }
+
+  function drawAvoidPaths() {
+    ctx.setLineDash([6, 5]);
+    ctx.lineDashOffset = 0;
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(255,80,80,0.9)';
+    for (const robot of robots) {
+      if (!robot.avoiding || robot.avoidPath.length === 0) continue;
+      ctx.beginPath();
+      ctx.moveTo(robot.x, robot.y);
+      for (const p of robot.avoidPath) ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+
+  function drawRobots() {
+    for (const robot of robots) {
+      const bobY = Math.sin(robot.bobPhase) * 2.5;
+      const x = robot.x, y = robot.y + bobY;
+      const alpha = robot.blink ? (0.35 + 0.65 * (0.5 + 0.5 * Math.sin(robot.blinkPhase * 12))) : 1;
+
+      // 低电量警示光圈
+      if (robot.blink && robot.state !== 'charging') {
+        ctx.strokeStyle = 'rgba(255,180,32,0.9)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, ROBOT_R + 6, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      // 充电中光圈
+      if (robot.state === 'charging') {
+        ctx.strokeStyle = 'rgba(77,163,255,0.9)';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(x, y, ROBOT_R + 6, 0, Math.PI * 2); ctx.stroke();
+      }
+
+      ctx.globalAlpha = alpha;
+      // 机身
+      ctx.fillStyle = robot.color;
+      ctx.beginPath(); ctx.arc(x, y, ROBOT_R, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+      ctx.lineWidth = 2; ctx.stroke();
+      // 朝向指示（摄像头）
+      const ex = x + Math.cos(robot.angle) * 4, ey = y + Math.sin(robot.angle) * 4;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(ex, ey, 3, 0, Math.PI * 2); ctx.fill();
+      // 高光
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.beginPath(); ctx.arc(x - 3, y - 3, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // 电量环
+      const pct = robot.battery / 100;
+      ctx.strokeStyle = pct > 0.5 ? '#4ade80' : (pct > 0.25 ? '#ffb020' : '#ff5d5d');
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x, y, ROBOT_R + 3, -Math.PI / 2, -Math.PI / 2 + pct * Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  // ---------- 粒子 ----------
+  let particles = [];
+  function spawnConfetti() {
+    for (let i = 0; i < 150; i++) {
+      particles.push({
+        x: W / 2 + (Math.random() - .5) * 200,
+        y: H * 0.3 + (Math.random() - .5) * 60,
+        vx: (Math.random() - .5) * 5,
+        vy: -Math.random() * 7 - 2,
+        g: 0.18 + Math.random() * 0.1,
+        life: 1, decay: 0.008 + Math.random() * 0.012,
+        color: ['#ff5d5d', '#4da3ff', '#4ade80', '#ffb020', '#ffd23f'][i % 5],
+        size: 4 + Math.random() * 5, rot: Math.random() * 6.28, vr: (Math.random() - .5) * .4,
+      });
+    }
+  }
+  function updateParticles(dt) {
+    for (const p of particles) {
+      p.x += p.vx; p.y += p.vy; p.vy += p.g; p.rot += p.vr; p.life -= p.decay;
+    }
+    particles = particles.filter(p => p.life > 0);
+  }
+  function drawParticles() {
+    for (const p of particles) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ---------- 数据面板 ----------
+  function fmtTime(s) {
+    const m = Math.floor(s / 60), ss = Math.floor(s % 60);
+    return String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+  }
+  function refreshPanel() {
+    const coverage = floorCells ? cleanedCount / floorCells * 100 : 0;
+    const avgBattery = robots.length ? robots.reduce((s, r) => s + r.battery, 0) / robots.length : 100;
+    document.getElementById('statArea').textContent = cleanedCount.toFixed(0);
+    document.getElementById('statCoverage').textContent = coverage.toFixed(1);
+    const battEl = document.getElementById('statBattery');
+    battEl.textContent = avgBattery.toFixed(0);
+    battEl.className = 'val ' + (avgBattery > 50 ? 'green' : (avgBattery > 25 ? 'yellow' : 'red'));
+    document.getElementById('statTime').textContent = fmtTime(runtime);
+    document.getElementById('progressFill').style.width = coverage.toFixed(1) + '%';
+
+    // 每台机器人电量条
+    const box = document.getElementById('robotBatteries');
+    box.innerHTML = '<div class="label">各机器人电量</div>' + robots.map(r => {
+      const col = r.battery > 50 ? '#4ade80' : (r.battery > 25 ? '#ffb020' : '#ff5d5d');
+      return '<div class="robot-bar"><span class="dot" style="background:' + r.color + '"></span>' +
+        '<span class="bar"><span class="fill" style="width:' + r.battery + '%;background:' + col + '"></span></span>' +
+        '<span class="pct">' + r.battery.toFixed(0) + '%</span></div>';
+    }).join('');
+  }
+
+  // ---------- 主循环 ----------
+  let running = false, paused = false, celebrating = false;
+  let runtime = 0, lastT = 0;
+
+  function loop(ts) {
+    const dt = Math.min(0.05, (ts - lastT) / 1000 || 0);
+    lastT = ts;
+
+    if (running && !paused) {
+      update(dt);
+      const coverage = floorCells ? cleanedCount / floorCells * 100 : 0;
+      if (!celebrating && coverage >= COMPLETE_THRESHOLD) {
+        celebrating = true;
+        spawnConfetti();
+        document.getElementById('completeOverlay').style.display = 'flex';
+        for (const r of robots) { if (hasGSAP) gsap.killTweensOf(r); r.state = 'done'; }
+      }
+      updateParticles(dt);
+    }
+
+    drawRoom();
+    drawCleaned();
+    drawFurniture();
+    drawDock();
+    drawAvoidPaths();
+    drawRobots();
+    drawParticles();
+    refreshPanel();
+
+    requestAnimationFrame(loop);
+  }
+
+  // ---------- 控制 ----------
+  function initSim() {
+    initGrid();
+    buildSweepRows();
+    buildSpiral();
+    robots = [];
+    for (let i = 0; i < robotCount; i++) robots.push(createRobot(i));
+    runtime = 0; cleanedCount = 0; cleaned.fill(0);
+    particles = []; celebrating = false;
+    document.getElementById('completeOverlay').style.display = 'none';
+    refreshPanel();
+  }
+
+  function startSim() {
+    if (!running) { initSim(); running = true; paused = false; }
+    else if (paused) { paused = false; if (hasGSAP) gsap.globalTimeline.play(); }
+    for (const r of robots) { if (r.state === 'idle') { r.state = 'cleaning'; r.target = null; } }
+    document.getElementById('btnStart').textContent = '运行中';
+  }
+  function pauseSim() {
+    if (!running) return;
+    paused = true;
+    if (hasGSAP) gsap.globalTimeline.pause();
+    document.getElementById('btnStart').textContent = '继续';
+  }
+  function resetSim() {
+    running = false; paused = false;
+    if (hasGSAP) { gsap.globalTimeline.play(); }
+    for (const r of robots) { if (hasGSAP) gsap.killTweensOf(r); }
+    initSim();
+    document.getElementById('btnStart').textContent = '开始';
+  }
+
+  document.getElementById('btnStart').addEventListener('click', startSim);
+  document.getElementById('btnPause').addEventListener('click', pauseSim);
+  document.getElementById('btnReset').addEventListener('click', resetSim);
+  document.querySelectorAll('input[name="count"]').forEach(el => {
+    el.addEventListener('change', () => { robotCount = parseInt(el.value, 10); resetSim(); });
+  });
+  document.getElementById('modeSelect').addEventListener('change', e => {
+    mode = e.target.value; resetSim();
+  });
+
+  // 启动
+  initSim();
+  requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
